@@ -1,0 +1,5 @@
+package org.nFlux.enums;
+
+public enum AUTHWAYS {
+    NONE, BEARER_TOKEN, BASIC_AUTH, CLIENT_ID_SECRET, API_KEY, QUERY_PARAMETER, CUSTOM_HEADER;
+}
