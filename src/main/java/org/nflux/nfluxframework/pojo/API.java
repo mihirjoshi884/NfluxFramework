@@ -110,5 +110,16 @@ public class API {
         this.inputMappings = inputMappings != null ? new HashMap<>(inputMappings) : new HashMap<>(); // Initialize new field
     }
 
+    public API() {
+        this.id = UUID.randomUUID().toString();
+        this.url = ""; // Default empty string
+        this.type = null; // Or a default API_TYPE
+        this.method = null; // Or a default HttpMethod
+        this.dependsOn = new HashSet<>();
+        this.headers = new HashMap<>();
+        this.queryParams = new HashMap<>();
+        this.requestBody = new HashMap<>();
+        this.inputMappings = new HashMap<>();
+    }
 
 }

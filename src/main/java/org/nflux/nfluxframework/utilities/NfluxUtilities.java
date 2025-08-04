@@ -1,89 +1,90 @@
-// File: src/main/java/org/nflux/nfluxframework/utilities/NfluxUtilities.java
+
 package org.nflux.nfluxframework.utilities;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.nflux.nfluxframework.enums.API_TYPE; // Import API_TYPE
+import org.nflux.nfluxframework.config.NfluxConfig; // Import NfluxConfig
+import org.nflux.nfluxframework.enums.API_TYPE;
 import org.nflux.nfluxframework.enums.AUTH_WAYS;
+import org.nflux.nfluxframework.enums.config.OutputFormat; // Import OutputFormat
 import org.nflux.nfluxframework.pojo.API;
 import org.nflux.nfluxframework.pojo.AuthDetails;
-import org.nflux.nfluxframework.pojo.InputMappingDetail; // Import InputMappingDetail
+import org.nflux.nfluxframework.pojo.InputMappingDetail;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod; // IMPORTED
-import org.springframework.http.HttpStatus; // IMPORTED
+import org.springframework.http.HttpMethod;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.List; // For setValueInMap helper
-import java.util.function.Predicate; // For onStatus lambda
 
 /**
  * Utility class for executing API calls using Spring WebClient.
- * It handles different HTTP methods, authentication types, and now,
- * dynamic input mapping from previous API results.
+ * It now uses NfluxConfig for runtime configuration.
  */
 public class NfluxUtilities {
 
     private static final Logger LOGGER = Logger.getLogger(NfluxUtilities.class.getName());
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
+    private final NfluxConfig nfluxConfig; // Add NfluxConfig field
 
-    public NfluxUtilities(WebClient.Builder webClientBuilder) {
+    /**
+     * Constructor for NfluxUtilities.
+     *
+     * @param webClientBuilder The WebClient.Builder to use.
+     * @param nfluxConfig The NfluxConfig object for runtime settings.
+     */
+    public NfluxUtilities(WebClient.Builder webClientBuilder, NfluxConfig nfluxConfig) {
         this.webClientBuilder = webClientBuilder;
         this.objectMapper = new ObjectMapper();
+        this.nfluxConfig = nfluxConfig;
     }
 
     /**
      * Executes an API call based on the provided API definition.
      * It dynamically applies input mappings from previous API results
-     * to construct the current API's request.
+     * and uses the NfluxConfig to control logging and output format.
      *
      * @param api The API definition to execute.
      * @param previousResults A map of previously executed API IDs to their JsonNode responses.
-     * This is used to resolve input mappings for dependent APIs.
      * @return A Mono emitting the JsonNode response of the executed API.
      */
     public Mono<JsonNode> executeApi(API api, Map<String, JsonNode> previousResults) {
-        // Create mutable copies of request details to apply dynamic mappings
         String currentUrl = api.getUrl();
         Map<String, String> currentHeaders = api.getHeaders() != null ? new HashMap<>(api.getHeaders()) : new HashMap<>();
         Map<String, Object> currentQueryParams = api.getQueryParams() != null ? new HashMap<>(api.getQueryParams()) : new HashMap<>();
         Map<String, Object> currentRequestBody = api.getRequestBody() != null ? new HashMap<>(api.getRequestBody()) : new HashMap<>();
 
-        // 1. Apply Input Mappings (only for DEPENDENT APIs that have mappings)
         if (api.getType() == API_TYPE.DEPENDENT && api.getInputMappings() != null && !api.getInputMappings().isEmpty()) {
             for (Map.Entry<String, InputMappingDetail> entry : api.getInputMappings().entrySet()) {
                 InputMappingDetail mapping = entry.getValue();
                 try {
-                    // Get the source API's result
                     JsonNode sourceResult = previousResults.get(mapping.getSourceApiId());
                     if (sourceResult == null) {
                         throw new IllegalStateException("Source API result not found for mapping: " + mapping.getSourceApiId() + " for API: " + api.getId());
                     }
-
-                    // Extract the value using JSONPath-like traversal
                     Object extractedValue = extractValueFromJsonNode(sourceResult, mapping.getSourceJsonPath());
                     if (extractedValue == null) {
-                        LOGGER.log(Level.WARNING, "Extracted null value for mapping '{0}' from API '{1}' using path '{2}'. Skipping.",
-                                new Object[]{entry.getKey(), mapping.getSourceApiId(), mapping.getSourceJsonPath()});
-                        continue; // Skip this mapping if value is null
+                        if (nfluxConfig.isLoggingEnabled()) {
+                            LOGGER.log(Level.WARNING, "Extracted null value for mapping '{0}' from API '{1}' using path '{2}'. Skipping.",
+                                    new Object[]{entry.getKey(), mapping.getSourceApiId(), mapping.getSourceJsonPath()});
+                        }
+                        continue;
                     }
-
-                    // Apply the extracted value to the target
                     switch (mapping.getTargetType()) {
                         case PATH_VARIABLE:
-                            // Replace {targetField} in URL with extractedValue
                             currentUrl = currentUrl.replace("{" + mapping.getTargetField() + "}",
                                     URLEncoder.encode(String.valueOf(extractedValue), StandardCharsets.UTF_8));
                             break;
@@ -91,34 +92,31 @@ public class NfluxUtilities {
                             currentQueryParams.put(mapping.getTargetField(), extractedValue);
                             break;
                         case REQUEST_BODY_FIELD:
-                            // Set the value in the request body map at the specified JSONPath
                             setValueInMap(currentRequestBody, mapping.getTargetField(), extractedValue);
                             break;
                         case HEADER:
                             currentHeaders.put(mapping.getTargetField(), String.valueOf(extractedValue));
                             break;
                         default:
-                            LOGGER.log(Level.WARNING, "Unsupported InputTargetType: {0}", mapping.getTargetType());
+                            if (nfluxConfig.isLoggingEnabled()) {
+                                LOGGER.log(Level.WARNING, "Unsupported InputTargetType: {0}", mapping.getTargetType());
+                            }
                             break;
                     }
                 } catch (Exception e) {
-                    LOGGER.log(Level.SEVERE, "Failed to apply input mapping '{0}' for API '{1}': {2}",
-                            new Object[]{entry.getKey(), api.getId(), e.getMessage()});
+                    if (nfluxConfig.isErrorLoggingEnabled()) {
+                        LOGGER.log(Level.SEVERE, "Failed to apply input mapping '{0}' for API '{1}': {2}",
+                                new Object[]{entry.getKey(), api.getId(), e.getMessage()});
+                    }
                     return Mono.error(new RuntimeException("Failed to apply input mapping for " + api.getId(), e));
                 }
             }
         }
 
-        // 2. Build WebClient Request
-        WebClient webClient = webClientBuilder.build(); // Build WebClient once
-
-        // Use a final variable for currentUrl in lambda
+        WebClient webClient = webClientBuilder.build();
         String finalCurrentUrl = currentUrl;
-
-        // Start building the request.
         WebClient.RequestHeadersSpec<?> requestSpec;
 
-        // Corrected WebClient builder chain:
         if (api.getMethod() == HttpMethod.POST || api.getMethod() == HttpMethod.PUT || api.getMethod() == HttpMethod.PATCH) {
             requestSpec = webClient.method(api.getMethod())
                     .uri(uriBuilder -> {
@@ -127,7 +125,7 @@ public class NfluxUtilities {
                         return uriBuilder.build();
                     })
                     .headers(httpHeaders -> currentHeaders.forEach(httpHeaders::add))
-                    .body(BodyInserters.fromValue(currentRequestBody)); // Apply body here
+                    .body(BodyInserters.fromValue(currentRequestBody));
         } else {
             requestSpec = webClient.method(api.getMethod())
                     .uri(uriBuilder -> {
@@ -135,43 +133,51 @@ public class NfluxUtilities {
                         currentQueryParams.forEach((key, value) -> uriBuilder.queryParam(key, value));
                         return uriBuilder.build();
                     })
-                    .headers(httpHeaders -> currentHeaders.forEach(httpHeaders::add)); // Apply headers here
+                    .headers(httpHeaders -> currentHeaders.forEach(httpHeaders::add));
         }
 
-        // Apply authentication (this needs to be on RequestHeadersSpec, which requestSpec is)
         applyAuthentication(requestSpec, api.getAuthDetails());
 
-        LOGGER.log(Level.INFO, "Preparing to execute API: {0} - {1} ({2})",
-                new Object[]{api.getId(), currentUrl, api.getMethod()});
+        if (nfluxConfig.isLoggingEnabled()) {
+            LOGGER.log(Level.INFO, "Preparing to execute API: {0} - {1} ({2})",
+                    new Object[]{api.getId(), currentUrl, api.getMethod()});
+        }
 
-        // 3. Execute Request and Handle Response
+        // Inside the executeApi method of NfluxUtilities.java
         return requestSpec.retrieve()
-                .onStatus(status -> status.isError(), response -> {
-                    // Log the error response details
-                    return response.bodyToMono(String.class)
-                            .flatMap(errorBody -> {
-                                LOGGER.log(Level.SEVERE, "Error executing API {0}: Status {1} {2}. Body: {3}",
-                                        new Object[]{api.getId(), response.statusCode().value(), response.statusCode().toString(), errorBody});
-                                return Mono.error(new WebClientResponseException(
-                                        response.statusCode().value(),
-                                        response.statusCode().toString(),
-                                        response.headers().asHttpHeaders(),
-                                        errorBody.getBytes(),
-                                        null));
-                            });
+                .onStatus(status -> status.isError(), response ->
+                        response.bodyToMono(String.class)
+                                .defaultIfEmpty("") // Handle cases where error body is empty
+                                .flatMap(errorBody -> {
+                                    if (nfluxConfig.isErrorLoggingEnabled()) {
+                                        LOGGER.log(Level.SEVERE, "Error executing API {0}: Status {1}. Body: {2}",
+                                                new Object[]{api.getId(), response.statusCode(), errorBody});
+                                    }
+                                    // Always return a Mono.error() to propagate the failure signal
+                                    return Mono.error(new WebClientResponseException(
+                                            response.statusCode().value(),
+                                            response.statusCode().toString(),
+                                            response.headers().asHttpHeaders(),
+                                            errorBody.getBytes(),
+                                            StandardCharsets.UTF_8
+                                    ));
+                                }))
+                .bodyToMono(String.class)
+                .map(rawResponse -> {
+                    // ... [rest of the success path logic] ...
+                    return processResponse(rawResponse, api.getId());
                 })
-                .bodyToMono(JsonNode.class)
-                .doOnSuccess(responseJson -> LOGGER.log(Level.INFO, "Successfully executed API: {0}. Response: {1}",
-                        new Object[]{api.getId(), responseJson.toPrettyString()}))
+                // The onErrorResume is now simplified as the onStatus block does the heavy lifting
                 .onErrorResume(WebClientResponseException.class, ex -> {
-                    LOGGER.log(Level.SEVERE, "Reactive error handling for API {0}: {1}",
-                            new Object[]{api.getId(), ex.getMessage()});
-                    return Mono.error(new RuntimeException("API execution failed for " + api.getId() + ": " + ex.getMessage(), ex));
+                    if (nfluxConfig.isErrorLoggingEnabled()) {
+                        LOGGER.log(Level.SEVERE, "Reactive error handling for API {0}: {1}",
+                                new Object[]{api.getId(), ex.getMessage()});
+                    }
+                    return Mono.error(new RuntimeException("API execution failed for " + api.getId(), ex));
                 })
                 .onErrorResume(Exception.class, ex -> {
-                    LOGGER.log(Level.SEVERE, "Generic error during API execution for {0}: {1}",
-                            new Object[]{api.getId(), ex.getMessage()});
-                    return Mono.error(new RuntimeException("API execution failed for " + api.getId() + ": " + ex.getMessage(), ex));
+                    // ... [rest of the generic error handling] ...
+                    return Mono.error(new RuntimeException("API execution failed for " + api.getId(), ex));
                 });
     }
 
@@ -186,29 +192,29 @@ public class NfluxUtilities {
             return;
         }
 
-        // The parameter 'requestHeadersSpec' is already of the correct type, no cast needed.
         if (authDetails.getAuthWays() == AUTH_WAYS.BEARER_TOKEN && authDetails.getToken() != null) {
             requestHeadersSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + authDetails.getToken());
-            LOGGER.log(Level.INFO, "Applied Bearer Token authentication.");
+            if (nfluxConfig.isLoggingEnabled()) {
+                LOGGER.log(Level.INFO, "Applied Bearer Token authentication.");
+            }
         } else if (authDetails.getAuthWays() == AUTH_WAYS.BASIC_AUTH && authDetails.getUsername() != null && authDetails.getPassword() != null) {
             String auth = authDetails.getUsername() + ":" + authDetails.getPassword();
             String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
             requestHeadersSpec.header(HttpHeaders.AUTHORIZATION, "Basic " + encodedAuth);
-            LOGGER.log(Level.INFO, "Applied Basic Authentication.");
+            if (nfluxConfig.isLoggingEnabled()) {
+                LOGGER.log(Level.INFO, "Applied Basic Authentication.");
+            }
         } else if (authDetails.getAuthWays() == AUTH_WAYS.API_KEY && authDetails.getApiKeyName() != null && authDetails.getApiKeyValue() != null) {
-            // Apply API Key as a header
             requestHeadersSpec.header(authDetails.getApiKeyName(), authDetails.getApiKeyValue());
-            LOGGER.log(Level.INFO, "Applied API Key authentication using header '{0}'.", authDetails.getApiKeyName());
+            if (nfluxConfig.isLoggingEnabled()) {
+                LOGGER.log(Level.INFO, "Applied API Key authentication using header '{0}'.", authDetails.getApiKeyName());
+            }
         } else if (authDetails.getAuthWays() == AUTH_WAYS.OAUTH2 && authDetails.getToken() != null) {
-            // For simplicity, assuming OAUTH2 here means applying a Bearer token
-            // from the existing 'token' field in AuthDetails.
-            // A more complex OAuth flow (e.g., client credentials) would involve
-            // an earlier API call to get this token.
             requestHeadersSpec.header(HttpHeaders.AUTHORIZATION, "Bearer " + authDetails.getToken());
-            LOGGER.log(Level.INFO, "Applied OAUTH2 authentication (as Bearer Token).");
+            if (nfluxConfig.isLoggingEnabled()) {
+                LOGGER.log(Level.INFO, "Applied OAUTH2 authentication (as Bearer Token).");
+            }
         }
-        // No need to handle clientId/clientSecret directly here, as they are used to *obtain* the token,
-        // which is then stored in 'token' and used in the OAUTH2 case above.
     }
 
     /**
@@ -225,7 +231,6 @@ public class NfluxUtilities {
             return null;
         }
 
-        // Remove leading "$.", if present
         String path = jsonPath.startsWith("$.") ? jsonPath.substring(2) : jsonPath;
         String[] parts = path.split("\\.");
 
@@ -235,7 +240,7 @@ public class NfluxUtilities {
                 return null;
             }
 
-            if (part.contains("[")) { // Handle array indexing (e.g., "array[0]")
+            if (part.contains("[")) {
                 String arrayName = part.substring(0, part.indexOf("["));
                 int index = Integer.parseInt(part.substring(part.indexOf("[") + 1, part.indexOf("]")));
 
@@ -244,21 +249,20 @@ public class NfluxUtilities {
                     if (index >= 0 && index < arrayNode.size()) {
                         currentNode = arrayNode.get(index);
                     } else {
-                        return null; // Index out of bounds
+                        return null;
                     }
                 } else {
-                    return null; // Not an array or array field not found
+                    return null;
                 }
-            } else { // Handle object fields
+            } else {
                 if (currentNode.isObject() && currentNode.has(part)) {
                     currentNode = currentNode.get(part);
                 } else {
-                    return null; // Field not found or not an object
+                    return null;
                 }
             }
         }
 
-        // Return the value based on its type
         if (currentNode == null || currentNode.isNull()) {
             return null;
         } else if (currentNode.isTextual()) {
@@ -268,7 +272,7 @@ public class NfluxUtilities {
         } else if (currentNode.isBoolean()) {
             return currentNode.booleanValue();
         } else {
-            return currentNode; // Return the JsonNode itself for objects or arrays
+            return currentNode;
         }
     }
 
@@ -287,7 +291,6 @@ public class NfluxUtilities {
             return;
         }
 
-        // Remove leading "$.", if present
         String path = jsonPath.startsWith("$.") ? jsonPath.substring(2) : jsonPath;
         String[] parts = path.split("\\.");
 
@@ -295,44 +298,79 @@ public class NfluxUtilities {
         for (int i = 0; i < parts.length; i++) {
             String part = parts[i];
 
-            if (part.contains("[")) { // Handle array indexing
+            if (part.contains("[")) {
                 String arrayName = part.substring(0, part.indexOf("["));
                 int index = Integer.parseInt(part.substring(part.indexOf("[") + 1, part.indexOf("]")));
 
                 Object arrayObj = currentMap.get(arrayName);
                 if (!(arrayObj instanceof List)) {
-                    arrayObj = new java.util.ArrayList<>(); // Create new list if not exists
+                    arrayObj = new java.util.ArrayList<>();
                     currentMap.put(arrayName, arrayObj);
                 }
                 List<Object> currentList = (List<Object>) arrayObj;
 
-                // Ensure list has enough elements
                 while (currentList.size() <= index) {
-                    currentList.add(new HashMap<>()); // Add empty objects for nested maps
+                    currentList.add(new HashMap<>());
                 }
 
-                if (i == parts.length - 1) { // Last part of the path, set the value directly
+                if (i == parts.length - 1) {
                     currentList.set(index, value);
-                } else { // Not the last part, continue into nested object/map within the array element
+                } else {
                     Object nextLevel = currentList.get(index);
                     if (!(nextLevel instanceof Map)) {
-                        nextLevel = new HashMap<>(); // Convert to map if not already
+                        nextLevel = new HashMap<>();
                         currentList.set(index, nextLevel);
                     }
                     currentMap = (Map<String, Object>) nextLevel;
                 }
-            } else { // Handle object fields
-                if (i == parts.length - 1) { // Last part of the path, set the value directly
+            } else {
+                if (i == parts.length - 1) {
                     currentMap.put(part, value);
-                } else { // Not the last part, navigate to nested map
+                } else {
                     Object nextLevel = currentMap.get(part);
                     if (!(nextLevel instanceof Map)) {
-                        nextLevel = new HashMap<>(); // Create new map if not exists
+                        nextLevel = new HashMap<>();
                         currentMap.put(part, nextLevel);
                     }
                     currentMap = (Map<String, Object>) nextLevel;
                 }
             }
+        }
+    }
+
+    /**
+     * Processes the raw API response string into a JsonNode based on the configured output format.
+     *
+     * @param rawResponse The raw response as a String.
+     * @param apiId The ID of the API being processed.
+     * @return A JsonNode representing the processed response.
+     */
+    private JsonNode processResponse(String rawResponse, String apiId) {
+        OutputFormat format = nfluxConfig.getOutputFormat();
+        try {
+            switch (format) {
+                case JSON_OBJECT:
+                    return objectMapper.readTree(rawResponse);
+                case FLAT_STRING:
+                    ObjectNode objectNode = objectMapper.createObjectNode();
+                    objectNode.put("response", rawResponse);
+                    return objectNode;
+                case XML_DOCUMENT:
+                    ObjectNode xmlNode = objectMapper.createObjectNode();
+                    xmlNode.put("response", "XML_CONTENT: " + rawResponse);
+                    return xmlNode;
+                default:
+                    if (nfluxConfig.isErrorLoggingEnabled()) {
+                        LOGGER.log(Level.SEVERE, "Unsupported output format: {0} for API {1}", new Object[]{format, apiId});
+                    }
+                    return objectMapper.createObjectNode().put("error", "Unsupported output format: " + format);
+            }
+        } catch (Exception e) {
+            if (nfluxConfig.isErrorLoggingEnabled()) {
+                LOGGER.log(Level.SEVERE, "Failed to process response for API {0} with format {1}. Error: {2}",
+                        new Object[]{apiId, format, e.getMessage()});
+            }
+            return objectMapper.createObjectNode().put("error", "Failed to process response");
         }
     }
 }

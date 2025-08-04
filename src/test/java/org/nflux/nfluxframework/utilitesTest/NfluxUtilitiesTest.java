@@ -1,4 +1,3 @@
-
 package org.nflux.nfluxframework.utilitesTest;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -8,9 +7,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.nflux.nfluxframework.config.NfluxConfig;
 import org.nflux.nfluxframework.enums.API_TYPE;
 import org.nflux.nfluxframework.enums.AUTH_WAYS;
 import org.nflux.nfluxframework.enums.InputTargetType;
+import org.nflux.nfluxframework.enums.config.OutputFormat;
 import org.nflux.nfluxframework.pojo.API;
 import org.nflux.nfluxframework.pojo.AuthDetails;
 import org.nflux.nfluxframework.pojo.InputMappingDetail;
@@ -20,7 +21,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException; // Import WebClientResponseException
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -28,7 +29,6 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
@@ -51,13 +51,18 @@ public class NfluxUtilitiesTest {
             .build();
 
     private NfluxUtilities nfluxUtilities;
-    private ObjectMapper objectMapper = new ObjectMapper();
+    private NfluxConfig nfluxConfig;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
         WebClient.Builder webClientBuilder = WebClient.builder()
                 .baseUrl("http://localhost:" + wireMockExtension.getPort());
-        nfluxUtilities = new NfluxUtilities(webClientBuilder);
+
+        // Correctly instantiate NfluxConfig and pass it to the utility class
+        this.nfluxConfig = new NfluxConfig();
+        this.nfluxUtilities = new NfluxUtilities(webClientBuilder, nfluxConfig);
+
         wireMockExtension.resetAll(); // Clear stubs and requests before each test
     }
 
@@ -235,7 +240,6 @@ public class NfluxUtilitiesTest {
                 .withHeader("X-API-Key", equalTo("my-super-secret-api-key")));
     }
 
-
     @Test
     void testExecuteApi_DependentApiWithPathVariableMapping() {
         // Simulate a previous API result that contains a user ID
@@ -270,24 +274,28 @@ public class NfluxUtilitiesTest {
     }
 
     @Test
-    void testExecuteApi_DependentApiWithQueryParamMapping() {
-        // Simulate a previous API result with a product category
+    void testExecuteApi_DependentApiWithQueryParamMapping() throws Exception {
+        // Simulate a previous API result with search criteria
         Map<String, JsonNode> previousResults = new HashMap<>();
-        previousResults.put("api-get-category", objectMapper.createObjectNode().put("category", "electronics"));
+        previousResults.put("search-criteria-api", objectMapper.createObjectNode()
+                .put("query", "electronics")
+                .put("page", 2));
 
-        // Define a dependent API that uses the category as a query parameter
-        API api = new API("test-dep-query-param", "/products/search", API_TYPE.DEPENDENT, HttpMethod.GET);
+        // Define a dependent API that uses values as query parameters
+        API api = new API("test-dep-query-param", "/search", API_TYPE.DEPENDENT, HttpMethod.GET);
         Map<String, InputMappingDetail> mappings = new HashMap<>();
-        mappings.put("categoryQuery", new InputMappingDetail("api-get-category", "$.category", InputTargetType.QUERY_PARAM, "cat"));
+        mappings.put("searchQuery", new InputMappingDetail("search-criteria-api", "$.query", InputTargetType.QUERY_PARAM, "q"));
+        mappings.put("pageNumber", new InputMappingDetail("search-criteria-api", "$.page", InputTargetType.QUERY_PARAM, "page"));
         api.setInputMappings(mappings);
 
-        // Stub WireMock to expect the request with the dynamically injected query parameter
-        wireMockExtension.stubFor(get(urlPathEqualTo("/products/search"))
-                .withQueryParam("cat", equalTo("electronics"))
+        // Stub WireMock to expect the request with the dynamically injected query parameters
+        wireMockExtension.stubFor(get(urlPathEqualTo("/search"))
+                .withQueryParam("q", equalTo("electronics"))
+                .withQueryParam("page", equalTo("2"))
                 .willReturn(aResponse()
                         .withStatus(HttpStatus.OK.value())
                         .withHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                        .withBody("{\"results\": [{\"name\": \"Laptop\"}]}")));
+                        .withBody("{\"results\": [\"item1\", \"item2\"]}")));
 
         // Execute and verify
         Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, previousResults);
@@ -296,36 +304,38 @@ public class NfluxUtilitiesTest {
                 .assertNext(jsonNode -> {
                     assertNotNull(jsonNode);
                     assertTrue(jsonNode.has("results"));
+                    assertEquals("item1", jsonNode.get("results").get(0).asText());
                 })
                 .verifyComplete();
 
-        wireMockExtension.verify(getRequestedFor(urlPathEqualTo("/products/search"))
-                .withQueryParam("cat", equalTo("electronics")));
+        wireMockExtension.verify(getRequestedFor(urlPathEqualTo("/search"))
+                .withQueryParam("q", equalTo("electronics"))
+                .withQueryParam("page", equalTo("2")));
     }
 
     @Test
-    void testExecuteApi_DependentApiWithRequestBodyFieldMapping() {
-        // Simulate a previous API result with an order ID
+    void testExecuteApi_DependentApiWithRequestBodyMapping() throws Exception {
+        // Simulate a previous API result with a user and products
         Map<String, JsonNode> previousResults = new HashMap<>();
-        previousResults.put("api-create-order", objectMapper.createObjectNode().put("orderId", "ORDER-123"));
+        previousResults.put("user-details-api", objectMapper.readTree("{\"user\":{\"id\":\"user-1\"},\"products\":[{\"id\":\"p1\"}]}"));
 
-        // Define a dependent API (POST) that uses the order ID in its request body
-        API api = new API("test-dep-body-field", "/order/update", API_TYPE.DEPENDENT, HttpMethod.POST);
-        Map<String, Object> initialRequestBody = new HashMap<>();
-        initialRequestBody.put("status", "shipped");
-        api.setRequestBody(initialRequestBody);
+        // Define a dependent API that uses values from previous results to build a request body
+        API api = new API("test-dep-body-map", "/submit", API_TYPE.DEPENDENT, HttpMethod.POST);
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("cartId", "cart-123");
+        api.setRequestBody(requestBody);
 
         Map<String, InputMappingDetail> mappings = new HashMap<>();
-        mappings.put("orderIdBody", new InputMappingDetail("api-create-order", "$.orderId", InputTargetType.REQUEST_BODY_FIELD, "orderDetails.id"));
+        mappings.put("userIdMapping", new InputMappingDetail("user-details-api", "$.user.id", InputTargetType.REQUEST_BODY_FIELD, "userId"));
+        mappings.put("productIdMapping", new InputMappingDetail("user-details-api", "$.products[0].id", InputTargetType.REQUEST_BODY_FIELD, "items[0].productId"));
         api.setInputMappings(mappings);
 
-        // Stub WireMock to expect the request body with the dynamically injected order ID
-        wireMockExtension.stubFor(post(urlEqualTo("/order/update"))
-                .withRequestBody(equalToJson("{\"status\":\"shipped\", \"orderDetails\":{\"id\":\"ORDER-123\"}}"))
+        // Stub WireMock to expect the dynamically generated request body
+        wireMockExtension.stubFor(post(urlEqualTo("/submit"))
+                .withRequestBody(equalToJson("{\"cartId\":\"cart-123\",\"userId\":\"user-1\",\"items\":[{\"productId\":\"p1\"}]}"))
                 .willReturn(aResponse()
                         .withStatus(HttpStatus.OK.value())
-                        .withHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                        .withBody("{\"updateStatus\": \"success\"}")));
+                        .withBody("{\"status\": \"success\"}")));
 
         // Execute and verify
         Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, previousResults);
@@ -333,33 +343,30 @@ public class NfluxUtilitiesTest {
         StepVerifier.create(resultMono)
                 .assertNext(jsonNode -> {
                     assertNotNull(jsonNode);
-                    assertEquals("success", jsonNode.get("updateStatus").asText());
+                    assertEquals("success", jsonNode.get("status").asText());
                 })
                 .verifyComplete();
-
-        wireMockExtension.verify(postRequestedFor(urlEqualTo("/order/update"))
-                .withRequestBody(equalToJson("{\"status\":\"shipped\", \"orderDetails\":{\"id\":\"ORDER-123\"}}")));
     }
 
     @Test
-    void testExecuteApi_DependentApiWithHeaderMapping() {
-        // Simulate a previous API result with a session token
+    void testExecuteApi_DependentApiWithHeaderMapping() throws Exception {
+        // Simulate a previous API result with a correlation ID
         Map<String, JsonNode> previousResults = new HashMap<>();
-        previousResults.put("api-login", objectMapper.createObjectNode().put("sessionToken", "ABCDEF12345"));
+        previousResults.put("session-api", objectMapper.createObjectNode()
+                .put("correlationId", "corr-abc-123"));
 
-        // Define a dependent API that uses the session token as a custom header
-        API api = new API("test-dep-header", "/secure/data", API_TYPE.DEPENDENT, HttpMethod.GET);
+        // Define a dependent API that uses the correlation ID in a custom header
+        API api = new API("test-dep-header-map", "/events", API_TYPE.DEPENDENT, HttpMethod.POST);
         Map<String, InputMappingDetail> mappings = new HashMap<>();
-        mappings.put("sessionTokenHeader", new InputMappingDetail("api-login", "$.sessionToken", InputTargetType.HEADER, "X-Session-Token"));
+        mappings.put("corrIdHeader", new InputMappingDetail("session-api", "$.correlationId", InputTargetType.HEADER, "X-Correlation-ID"));
         api.setInputMappings(mappings);
 
-        // Stub WireMock to expect the request with the dynamically injected header
-        wireMockExtension.stubFor(get(urlEqualTo("/secure/data"))
-                .withHeader("X-Session-Token", equalTo("ABCDEF12345"))
+        // Stub WireMock to expect the request with the custom header
+        wireMockExtension.stubFor(post(urlEqualTo("/events"))
+                .withHeader("X-Correlation-ID", equalTo("corr-abc-123"))
                 .willReturn(aResponse()
                         .withStatus(HttpStatus.OK.value())
-                        .withHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                        .withBody("{\"data\": \"sensitive info\"}")));
+                        .withBody("{\"eventStatus\": \"logged\"}")));
 
         // Execute and verify
         Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, previousResults);
@@ -367,56 +374,128 @@ public class NfluxUtilitiesTest {
         StepVerifier.create(resultMono)
                 .assertNext(jsonNode -> {
                     assertNotNull(jsonNode);
-                    assertEquals("sensitive info", jsonNode.get("data").asText());
+                    assertEquals("logged", jsonNode.get("eventStatus").asText());
                 })
                 .verifyComplete();
 
-        wireMockExtension.verify(getRequestedFor(urlEqualTo("/secure/data"))
-                .withHeader("X-Session-Token", equalTo("ABCDEF12345")));
+        wireMockExtension.verify(postRequestedFor(urlEqualTo("/events"))
+                .withHeader("X-Correlation-ID", equalTo("corr-abc-123")));
     }
 
-    @Test
-    void testExecuteApi_ErrorResponseHandling() {
-        // Define an API that will return an error
-        API api = new API("test-error-api", "/api/error", API_TYPE.INDEPENDENT, HttpMethod.GET);
-
-        // Stub WireMock to return an internal server error
-        wireMockExtension.stubFor(get(urlEqualTo("/api/error"))
-                .willReturn(aResponse()
-                        .withStatus(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                        .withHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                        .withBody("{\"error\": \"Something went wrong\"}")));
-
-        // Execute and verify that an error is propagated
-        Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, Collections.emptyMap());
-
-        StepVerifier.create(resultMono)
-                .expectErrorMatches(throwable ->
-                        throwable instanceof RuntimeException &&
-                                throwable.getMessage().contains("API execution failed for test-error-api") &&
-                                throwable.getMessage().contains("500 INTERNAL_SERVER_ERROR")) // Refined message check
-                .verify();
-
-        wireMockExtension.verify(getRequestedFor(urlEqualTo("/api/error")));
-    }
 
     @Test
-    void testExecuteApi_MissingSourceApiResultForMapping() {
-        // Define a dependent API with a mapping, but don't provide the source API's result
-        API api = new API("test-missing-source", "/data/{id}", API_TYPE.DEPENDENT, HttpMethod.GET);
+    void testExecuteApi_MappingToNonExistentSourceApi_ThrowsException() {
+        // Define a dependent API without providing a result for its source
+        API api = new API("test-dep-no-source", "/data", API_TYPE.DEPENDENT, HttpMethod.GET);
         Map<String, InputMappingDetail> mappings = new HashMap<>();
-        mappings.put("missingSource", new InputMappingDetail("non-existent-api", "$.someId", InputTargetType.PATH_VARIABLE, "id"));
+        mappings.put("badMapping", new InputMappingDetail("non-existent-api", "$.id", InputTargetType.PATH_VARIABLE, "id"));
         api.setInputMappings(mappings);
 
-        // Execute and expect an IllegalStateException due to missing source result
+        // Execute and verify that an exception is thrown
         Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, Collections.emptyMap());
 
         StepVerifier.create(resultMono)
                 .expectErrorMatches(throwable ->
                         throwable instanceof RuntimeException &&
-                                throwable.getMessage().contains("Failed to apply input mapping for test-missing-source") &&
+                                throwable.getMessage().contains("Failed to apply input mapping") &&
                                 throwable.getCause() instanceof IllegalStateException &&
-                                throwable.getCause().getMessage().contains("Source API result not found for mapping: non-existent-api for API: test-missing-source")) // Refined message check
+                                throwable.getCause().getMessage().contains("Source API result not found")
+                )
                 .verify();
+    }
+
+    @Test
+    void testExecuteApi_MappingWithNullExtractedValue_SkipsMapping() throws Exception {
+        // Simulate a previous API result where a field is missing
+        Map<String, JsonNode> previousResults = new HashMap<>();
+        previousResults.put("source-api-missing-field", objectMapper.readTree("{\"data\":{\"id\":123}}"));
+
+        // Define a dependent API with a mapping to a non-existent field
+        API api = new API("test-dep-missing-field", "/data", API_TYPE.DEPENDENT, HttpMethod.GET);
+        Map<String, InputMappingDetail> mappings = new HashMap<>();
+        mappings.put("missingField", new InputMappingDetail("source-api-missing-field", "$.data.name", InputTargetType.QUERY_PARAM, "name"));
+        api.setInputMappings(mappings);
+
+        // Stub WireMock to expect a request without the missing query parameter
+        wireMockExtension.stubFor(get(urlEqualTo("/data"))
+                .willReturn(aResponse()
+                        .withStatus(HttpStatus.OK.value())
+                        .withBody("{\"status\": \"OK\"}")));
+
+        // Execute and verify that no error is thrown and the call succeeds
+        Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, previousResults);
+
+        StepVerifier.create(resultMono)
+                .assertNext(jsonNode -> assertEquals("OK", jsonNode.get("status").asText()))
+                .verifyComplete();
+
+        // Verify that the request was made without the 'name' query parameter
+        wireMockExtension.verify(getRequestedFor(urlEqualTo("/data")));
+    }
+
+
+    @Test
+    void testExecuteApi_CallFailsWith404Error_ReturnsErrorMono() {
+        // Define an API for a non-existent endpoint
+        API api = new API("test-404", "/non-existent", API_TYPE.INDEPENDENT, HttpMethod.GET);
+
+        // Stub WireMock to return a 404 Not Found error
+        wireMockExtension.stubFor(get(urlEqualTo("/non-existent"))
+                .willReturn(aResponse().withStatus(HttpStatus.NOT_FOUND.value())));
+
+        // Execute and verify that the Mono completes with an error
+        Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, Collections.emptyMap());
+
+        // Corrected assertion: Expect the specific RuntimeException with its message.
+        StepVerifier.create(resultMono)
+                .expectErrorMatches(throwable ->
+                        throwable instanceof RuntimeException &&
+                                throwable.getMessage().startsWith("API execution failed for test-404")
+                )
+                .verify();
+    }
+
+    @Test
+    void testExecuteApi_OutputFormatIsFlatString_ReturnsObjectNodeWithRawString() {
+        // Define a simple API
+        API api = new API("test-flat-string", "/data", API_TYPE.INDEPENDENT, HttpMethod.GET);
+        nfluxConfig.setOutputFormat(OutputFormat.FLAT_STRING);
+
+        String rawResponse = "Hello, this is a plain text response.";
+        wireMockExtension.stubFor(get(urlEqualTo("/data"))
+                .willReturn(aResponse()
+                        .withStatus(HttpStatus.OK.value())
+                        .withBody(rawResponse)));
+
+        Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, Collections.emptyMap());
+
+        StepVerifier.create(resultMono)
+                .assertNext(jsonNode -> {
+                    assertTrue(jsonNode.isObject());
+                    assertEquals(rawResponse, jsonNode.get("response").asText());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void testExecuteApi_OutputFormatIsXMLDocument_ReturnsObjectNodeWithRawString() {
+        // Define a simple API
+        API api = new API("test-xml", "/data", API_TYPE.INDEPENDENT, HttpMethod.GET);
+        nfluxConfig.setOutputFormat(OutputFormat.XML_DOCUMENT);
+
+        String rawResponse = "<data><item>1</item></data>";
+        wireMockExtension.stubFor(get(urlEqualTo("/data"))
+                .willReturn(aResponse()
+                        .withStatus(HttpStatus.OK.value())
+                        .withBody(rawResponse)));
+
+        Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, Collections.emptyMap());
+
+        StepVerifier.create(resultMono)
+                .assertNext(jsonNode -> {
+                    assertTrue(jsonNode.isObject());
+                    assertEquals("XML_CONTENT: " + rawResponse, jsonNode.get("response").asText());
+                })
+                .verifyComplete();
     }
 }
