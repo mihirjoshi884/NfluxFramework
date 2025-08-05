@@ -176,7 +176,7 @@ public class NfluxUtilities {
                     return Mono.error(new RuntimeException("API execution failed for " + api.getId(), ex));
                 })
                 .onErrorResume(Exception.class, ex -> {
-                    // ... [rest of the generic error handling] ...
+
                     return Mono.error(new RuntimeException("API execution failed for " + api.getId(), ex));
                 });
     }

@@ -29,7 +29,7 @@ public class API_DAG {
      */
     public void addApi(API api) {
         if (apiMap.containsKey(api.getId())) {
-            throw new IllegalArgumentException("API with ID " + api.getId() + " already exists.");
+            throw new IllegalArgumentException("API with ID " + api.getId() + " already exists in the DAG.");
         }
         // Validate self-dependency at add time
         if (api.getDependsOn() != null && api.getDependsOn().contains(api.getId())) {
