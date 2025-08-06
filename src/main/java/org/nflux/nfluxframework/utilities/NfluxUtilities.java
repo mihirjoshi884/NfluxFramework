@@ -52,39 +52,38 @@ public class NfluxUtilities {
         this.nfluxConfig = nfluxConfig;
     }
 
-    /**
-     * Executes an API call based on the provided API definition.
-     * It dynamically applies input mappings from previous API results
-     * and uses the NfluxConfig to control logging and output format.
-     *
-     * @param api The API definition to execute.
-     * @param previousResults A map of previously executed API IDs to their JsonNode responses.
-     * @return A Mono emitting the JsonNode response of the executed API.
-     */
     public Mono<JsonNode> executeApi(API api, Map<String, JsonNode> previousResults) {
+        // Create mutable copies of request details to apply dynamic mappings
         String currentUrl = api.getUrl();
         Map<String, String> currentHeaders = api.getHeaders() != null ? new HashMap<>(api.getHeaders()) : new HashMap<>();
         Map<String, Object> currentQueryParams = api.getQueryParams() != null ? new HashMap<>(api.getQueryParams()) : new HashMap<>();
         Map<String, Object> currentRequestBody = api.getRequestBody() != null ? new HashMap<>(api.getRequestBody()) : new HashMap<>();
 
+        // 1. Apply Input Mappings (only for DEPENDENT APIs that have mappings)
         if (api.getType() == API_TYPE.DEPENDENT && api.getInputMappings() != null && !api.getInputMappings().isEmpty()) {
             for (Map.Entry<String, InputMappingDetail> entry : api.getInputMappings().entrySet()) {
                 InputMappingDetail mapping = entry.getValue();
                 try {
+                    // Get the source API's result
                     JsonNode sourceResult = previousResults.get(mapping.getSourceApiId());
                     if (sourceResult == null) {
                         throw new IllegalStateException("Source API result not found for mapping: " + mapping.getSourceApiId() + " for API: " + api.getId());
                     }
+
+                    // Extract the value using JSONPath-like traversal
                     Object extractedValue = extractValueFromJsonNode(sourceResult, mapping.getSourceJsonPath());
                     if (extractedValue == null) {
-                        if (nfluxConfig.isLoggingEnabled()) {
+                        if (nfluxConfig.isLoggingEnabled()) { // Use nfluxConfig for logging
                             LOGGER.log(Level.WARNING, "Extracted null value for mapping '{0}' from API '{1}' using path '{2}'. Skipping.",
                                     new Object[]{entry.getKey(), mapping.getSourceApiId(), mapping.getSourceJsonPath()});
                         }
-                        continue;
+                        continue; // Skip this mapping if value is null
                     }
+
+                    // Apply the extracted value to the target
                     switch (mapping.getTargetType()) {
                         case PATH_VARIABLE:
+                            // Replace {targetField} in URL with extractedValue
                             currentUrl = currentUrl.replace("{" + mapping.getTargetField() + "}",
                                     URLEncoder.encode(String.valueOf(extractedValue), StandardCharsets.UTF_8));
                             break;
@@ -92,19 +91,46 @@ public class NfluxUtilities {
                             currentQueryParams.put(mapping.getTargetField(), extractedValue);
                             break;
                         case REQUEST_BODY_FIELD:
+                            // Set the value in the request body map at the specified JSONPath
                             setValueInMap(currentRequestBody, mapping.getTargetField(), extractedValue);
                             break;
                         case HEADER:
                             currentHeaders.put(mapping.getTargetField(), String.valueOf(extractedValue));
                             break;
+                        case AUTH_DETAIL_FIELD: // NEW: Handle mapping to AuthDetails fields
+                            if (api.getAuthDetails() == null) {
+                                // If AuthDetails is null, create a new one.
+                                // We assume it's a bearer token if 'token' is targeted.
+                                if ("token".equals(mapping.getTargetField())) {
+                                    api.setAuthDetails(new AuthDetails(AUTH_WAYS.BEARER_TOKEN, String.valueOf(extractedValue), null, null, null, null, null, null));
+                                } else {
+                                    if (nfluxConfig.isErrorLoggingEnabled()) { // Use nfluxConfig for error logging
+                                        LOGGER.log(Level.WARNING, "AuthDetails is null for API '{0}'. Cannot set field '{1}'.",
+                                                new Object[]{api.getId(), mapping.getTargetField()});
+                                    }
+                                }
+                            } else {
+                                // Set the specific field in the existing AuthDetails object
+                                if ("token".equals(mapping.getTargetField())) {
+                                    api.getAuthDetails().setToken(String.valueOf(extractedValue));
+                                }
+                                // Add more else if for other AuthDetails fields if needed (e.g., username, password)
+                                else {
+                                    if (nfluxConfig.isErrorLoggingEnabled()) { // Use nfluxConfig for error logging
+                                        LOGGER.log(Level.WARNING, "Unsupported AuthDetails field for mapping: '{0}' for API '{1}'.",
+                                                new Object[]{mapping.getTargetField(), api.getId()});
+                                    }
+                                }
+                            }
+                            break;
                         default:
-                            if (nfluxConfig.isLoggingEnabled()) {
+                            if (nfluxConfig.isErrorLoggingEnabled()) { // Use nfluxConfig for error logging
                                 LOGGER.log(Level.WARNING, "Unsupported InputTargetType: {0}", mapping.getTargetType());
                             }
                             break;
                     }
                 } catch (Exception e) {
-                    if (nfluxConfig.isErrorLoggingEnabled()) {
+                    if (nfluxConfig.isErrorLoggingEnabled()) { // Use nfluxConfig for error logging
                         LOGGER.log(Level.SEVERE, "Failed to apply input mapping '{0}' for API '{1}': {2}",
                                 new Object[]{entry.getKey(), api.getId(), e.getMessage()});
                     }

@@ -349,6 +349,49 @@ public class NfluxUtilitiesTest {
     }
 
     @Test
+    void testExecuteApi_DependentApiWithAuthDetailFieldMapping() throws Exception {
+        // Simulate a previous API result (e.g., login response) containing a token
+        String token = "dynamic-auth-token-123";
+        Map<String, JsonNode> previousResults = new HashMap<>();
+        previousResults.put("login-api", objectMapper.createObjectNode().put("token", token));
+
+        // Define a dependent API that needs this token for authentication
+        API api = new API("test-dep-auth-map", "/secure-data", API_TYPE.DEPENDENT, HttpMethod.GET);
+
+        // Initialize AuthDetails, the mapping will populate the token field
+        AuthDetails authDetails = new AuthDetails();
+        authDetails.setAuthWays(AUTH_WAYS.BEARER_TOKEN); // Set the type of auth expected
+        api.setAuthDetails(authDetails);
+
+        Map<String, InputMappingDetail> mappings = new HashMap<>();
+        mappings.put("authToken", new InputMappingDetail("login-api", "$.token", InputTargetType.AUTH_DETAIL_FIELD, "token"));
+        api.setInputMappings(mappings);
+
+        // Stub WireMock to expect the request with the dynamically injected Bearer token
+        wireMockExtension.stubFor(get(urlEqualTo("/secure-data"))
+                .withHeader(HttpHeaders.AUTHORIZATION, equalTo("Bearer " + token))
+                .willReturn(aResponse()
+                        .withStatus(HttpStatus.OK.value())
+                        .withBody("{\"access\": \"granted\", \"tokenUsed\": \"" + token + "\"}")));
+
+        // Execute and verify
+        Mono<JsonNode> resultMono = nfluxUtilities.executeApi(api, previousResults);
+
+        StepVerifier.create(resultMono)
+                .assertNext(jsonNode -> {
+                    assertNotNull(jsonNode);
+                    assertEquals("granted", jsonNode.get("access").asText());
+                    assertEquals(token, jsonNode.get("tokenUsed").asText());
+                    // Additionally, verify that the AuthDetails object within the API was updated
+                    assertEquals(token, api.getAuthDetails().getToken());
+                })
+                .verifyComplete();
+
+        wireMockExtension.verify(getRequestedFor(urlEqualTo("/secure-data"))
+                .withHeader(HttpHeaders.AUTHORIZATION, equalTo("Bearer " + token)));
+    }
+
+    @Test
     void testExecuteApi_DependentApiWithHeaderMapping() throws Exception {
         // Simulate a previous API result with a correlation ID
         Map<String, JsonNode> previousResults = new HashMap<>();
