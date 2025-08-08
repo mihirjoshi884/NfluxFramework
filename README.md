@@ -24,34 +24,40 @@ public class DemoApplication {
 
 ## ⚙️ Configuration Properties
 
-Configure orchestration behavior in your `application.properties`:
+The `application.properties` file is where you can customize the framework's behavior. Understanding these properties allows you to fine-tune your orchestration.
 
-```properties
-# Enable detailed logging
-nflux.loggingEnabled=true
-
-# Enable verbose error logging
-nflux.errorLoggingEnabled=true
-
-# Final output format (e.g., JSON_OBJECT, JSON_ARRAY)
-nflux.outputFormat=JSON_OBJECT
-
-# Stop orchestration on first API failure
-nflux.errorMode=FAIL_FAST
-
-# Timeout for orchestration in milliseconds
-nflux.timeout=30000
-```
+| Property | Description | Example |
+|----------|-------------|---------|
+| `nflux.loggingEnabled` | Enables detailed logs of the orchestration's flow, including which APIs are running and what their responses are. | `nflux.loggingEnabled=true` |
+| `nflux.errorLoggingEnabled` | Enables verbose stack traces and detailed error messages when an API call fails. | `nflux.errorLoggingEnabled=true` |
+| `nflux.outputFormat` | Specifies the structure of the final output. `JSON_OBJECT` returns a map of API IDs to their responses. | `nflux.outputFormat=JSON_OBJECT` |
+| `nflux.errorMode` | Controls behavior on failure. `FAIL_FAST` stops immediately, `CONTINUE` proceeds with independent APIs. | `nflux.errorMode=FAIL_FAST` |
+| `nflux.timeout` | Global timeout for the entire orchestration in milliseconds. | `nflux.timeout=30000` |
 
 ---
 
 ## 🧱 Core Components
 
-### ✅ API POJO
+### ✅ The API POJO
 
-The `API` class represents each API in your orchestration.
+The `API` class is the blueprint for every API call in your orchestration.
 
-#### Example: Independent API (Login API)
+#### Constructor Parameters:
+
+1. `apiId (String)` – Unique ID for the API.
+2. `url (String)` – Full URL, including placeholders like `{userId}`.
+3. `apiType (API_TYPE)` – Either `INDEPENDENT` or `DEPENDENT`.
+4. `httpMethod (HttpMethod)` – HTTP method like GET, POST, etc.
+5. `authDetails (AuthDetails)` – How to authenticate this API.
+6. `dependsOn (Set<String>)` – List of dependent API IDs.
+7. `headers (Map<String, String>)` – Custom headers.
+8. `queryParams (Map<String, String>)` – Query parameters.
+9. `requestBody (Map<String, Object>)` – Body for POST/PUT.
+10. `inputMappings (List<InputMappingDetail>)` – Data linking from other APIs.
+
+---
+
+### 🟢 Example: Independent API (Login API)
 
 ```java
 @Bean
@@ -71,7 +77,9 @@ public API loginApi() {
 }
 ```
 
-#### Example: Dependent API (Profile API)
+---
+
+### 🔵 Example: Dependent API (Profile API)
 
 ```java
 @Bean
@@ -106,27 +114,26 @@ public API getProfileApi() {
 
 ---
 
-### 🔄 InputMappingDetail Explained
+## 🔄 InputMappingDetail Explained
 
 | Field | Description |
 |-------|-------------|
-| `sourceApiId` | ID of the API to extract data from (e.g., `"user-login"`) |
-| `sourcePath` | JSONPath expression to fetch value (e.g., `$.user.id`) |
-| `targetName` | Placeholder to replace (e.g., `userId`) |
-| `inputTargetType` | Type (e.g., `PATH_VARIABLE`, `REQUEST_BODY`, `HEADER`, etc.) |
+| `sourceApiId` | ID of the source API |
+| `sourcePath` | JSONPath to extract value |
+| `targetName` | Placeholder name (e.g., userId) |
+| `inputTargetType` | Where to put value: PATH_VARIABLE, HEADER, REQUEST_BODY, etc. |
 
 ---
 
 ## 🚀 Executing the Orchestration
 
-Use the `NfluxFrameworkHolder` to execute your defined API flow.
+Use the `NfluxFrameworkHolder` to trigger execution.
 
 ```java
 @PostConstruct
 public void runOrchestration() {
     try {
         NfluxFramework nfluxFramework = NfluxFrameworkHolder.getInstance();
-
         Mono<Map<String, JsonNode>> resultsMono = nfluxFramework.executeOrchestration();
 
         resultsMono.subscribe(
@@ -157,10 +164,10 @@ public void runOrchestration() {
 | 🔧 Annotation | `@EnableNfluxFramework` |
 | 📁 Config File | `application.properties` |
 | 🧠 API Type | `INDEPENDENT`, `DEPENDENT` |
-| 🔗 Input Mapping | Supports JSONPath, Path Variables, Headers, etc. |
-| ⏱️ Timeout | Global orchestration timeout control |
-| ☠️ Error Modes | `FAIL_FAST`, etc. |
-| 📦 Output | Customizable via `nflux.outputFormat` |
+| 🔗 Input Mapping | `InputMappingDetail` with JSONPath |
+| ⏱️ Timeout | Controlled via `nflux.timeout` |
+| ☠️ Error Modes | `FAIL_FAST`, `CONTINUE` |
+| 📦 Output | Controlled via `nflux.outputFormat` |
 
 ---
 
