@@ -17,8 +17,11 @@ import org.springframework.http.HttpMethod;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -139,29 +142,73 @@ public class NfluxUtilities {
             }
         }
 
-        WebClient webClient = webClientBuilder.build();
-        String finalCurrentUrl = currentUrl;
-        WebClient.RequestHeadersSpec<?> requestSpec;
+        WebClient webClient;
+        WebClient.RequestHeadersSpec<?> requestSpec = null;
 
-        if (api.getMethod() == HttpMethod.POST || api.getMethod() == HttpMethod.PUT || api.getMethod() == HttpMethod.PATCH) {
-            requestSpec = webClient.method(api.getMethod())
-                    .uri(uriBuilder -> {
-                        uriBuilder.path(finalCurrentUrl);
-                        currentQueryParams.forEach((key, value) -> uriBuilder.queryParam(key, value));
-                        return uriBuilder.build();
-                    })
-                    .headers(httpHeaders -> currentHeaders.forEach(httpHeaders::add))
-                    .body(BodyInserters.fromValue(currentRequestBody));
-        } else {
-            requestSpec = webClient.method(api.getMethod())
-                    .uri(uriBuilder -> {
-                        uriBuilder.path(finalCurrentUrl);
-                        currentQueryParams.forEach((key, value) -> uriBuilder.queryParam(key, value));
-                        return uriBuilder.build();
-                    })
-                    .headers(httpHeaders -> currentHeaders.forEach(httpHeaders::add));
+        try {
+            URI fullUri = new URI(currentUrl);
+
+            // Check if the URI is absolute (contains a scheme like http/https).
+            if (fullUri.isAbsolute()) {
+                // Case 1: Absolute URI (e.g., http://localhost:8080/path)
+                // Rebuild the base URL from the scheme and authority (host:port).
+                String baseUrl = fullUri.getScheme() + "://" + fullUri.getAuthority();
+
+                // Create a new WebClient instance with the resolved base URL.
+                webClient = webClientBuilder.baseUrl(baseUrl).build();
+
+                // The path is now a relative segment.
+                String finalPath = fullUri.getPath();
+
+                // Build the URI string with path and query parameters
+                UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(finalPath);
+                for (Map.Entry<String, Object> entry : currentQueryParams.entrySet()) {
+                    uriBuilder.queryParam(entry.getKey(), entry.getValue());
+                }
+                String finalUri = uriBuilder.build().toUriString();
+
+                if (api.getMethod() == HttpMethod.POST || api.getMethod() == HttpMethod.PUT || api.getMethod() == HttpMethod.PATCH) {
+                    requestSpec = webClient.method(api.getMethod())
+                            .uri(finalUri)
+                            .headers(httpHeaders -> currentHeaders.forEach(httpHeaders::add))
+                            .body(BodyInserters.fromValue(currentRequestBody));
+                } else {
+                    requestSpec = webClient.method(api.getMethod())
+                            .uri(finalUri)
+                            .headers(httpHeaders -> currentHeaders.forEach(httpHeaders::add));
+                }
+            } else {
+                // Case 2: Relative URI (e.g., /path)
+                // Use the original builder and provide the full path to the uri() method.
+                webClient = webClientBuilder.build();
+
+                // Build the URI string with path and query parameters
+                UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(currentUrl);
+                for (Map.Entry<String, Object> entry : currentQueryParams.entrySet()) {
+                    uriBuilder.queryParam(entry.getKey(), entry.getValue());
+                }
+                String finalUri = uriBuilder.build().toUriString();
+
+                if (api.getMethod() == HttpMethod.POST || api.getMethod() == HttpMethod.PUT || api.getMethod() == HttpMethod.PATCH) {
+                    requestSpec = webClient.method(api.getMethod())
+                            .uri(finalUri)
+                            .headers(httpHeaders -> currentHeaders.forEach(httpHeaders::add))
+                            .body(BodyInserters.fromValue(currentRequestBody));
+                } else {
+                    requestSpec = webClient.method(api.getMethod())
+                            .uri(finalUri)
+                            .headers(httpHeaders -> currentHeaders.forEach(httpHeaders::add));
+                }
+            }
+        } catch (URISyntaxException e) {
+            // Handle the case where the URL is malformed.
+            // Log the error and return a Mono.error to fail the stream gracefully.
+            if (nfluxConfig.isErrorLoggingEnabled()) {
+                LOGGER.log(Level.SEVERE, "Invalid URL syntax for API '{0}': {1}",
+                        new Object[]{api.getId(), e.getMessage()});
+            }
+            return Mono.error(new RuntimeException("Invalid URL syntax for " + api.getId(), e));
         }
-
         applyAuthentication(requestSpec, api.getAuthDetails());
 
         if (nfluxConfig.isLoggingEnabled()) {
