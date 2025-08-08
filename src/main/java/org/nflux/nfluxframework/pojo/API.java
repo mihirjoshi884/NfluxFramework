@@ -1,9 +1,9 @@
-// File: src/main/java/org/nflux/nfluxframework/pojo/API.java
+
 package org.nflux.nfluxframework.pojo;
 
-import lombok.Getter; // Import Lombok's Getter annotation
-import lombok.Setter; // Import Lombok's Setter annotation
-import lombok.ToString; // Import Lombok's ToString annotation
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 
 import org.nflux.nfluxframework.enums.API_TYPE;
 import org.springframework.http.HttpMethod;
@@ -12,7 +12,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID; // For auto-generating unique IDs
+import java.util.UUID;
 
 /**
  * Represents an API definition, including its ID, URL, type, HTTP method,
@@ -23,23 +23,23 @@ import java.util.UUID; // For auto-generating unique IDs
  * Added inputMappings to define how data from previous API results
  * should be used as input for this API.
  */
-@Getter // Automatically generates public getters for all fields
-@Setter // Automatically generates public setters for all non-final fields
-@ToString // Automatically generates a toString() method
+@Getter
+@Setter
+@ToString
 public class API {
 
-    // Unique identifier for the API. Made final to ensure immutability once set.
+
     private final String id;
     private final String url;
     private final API_TYPE type;
     private final HttpMethod method;
 
 
-    // Optional fields with default null or empty collection initializations
+
     private AuthDetails authDetails;
-    private Set<String> dependsOn; // IDs of APIs this API depends on
-    // Defines how input from previous API results maps to this API's request
-    private Map<String, InputMappingDetail> inputMappings; // Changed from List to Map for easier lookup by a key (e.g., mapping name)
+    private Set<String> dependsOn;
+
+    private Map<String, InputMappingDetail> inputMappings;
     private Map<String, String> headers;
     private Map<String, Object> queryParams;
     private Map<String, Object> requestBody;
@@ -76,7 +76,7 @@ public class API {
         this.headers = new HashMap<>();
         this.queryParams = new HashMap<>();
         this.requestBody = new HashMap<>();
-        this.inputMappings = new HashMap<>(); // Initialize new field
+        this.inputMappings = new HashMap<>();
     }
 
     /**

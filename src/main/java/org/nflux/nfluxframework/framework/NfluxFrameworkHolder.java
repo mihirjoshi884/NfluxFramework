@@ -1,9 +1,5 @@
 package org.nflux.nfluxframework.framework;
 
-
-
-
-
 public class NfluxFrameworkHolder {
 
     private static NfluxFramework framework;

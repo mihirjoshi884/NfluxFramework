@@ -10,5 +10,5 @@ public enum InputTargetType {
     QUERY_PARAM,
     REQUEST_BODY_FIELD, // Indicates a field within the JSON request body
     HEADER, // Indicates a request header
-    AUTH_DETAIL_FIELD // NEW: Indicates a field within the AuthDetails object (e.g., 'token')
+    AUTH_DETAIL_FIELD // Indicates a field within the AuthDetails object (e.g., 'token')
 }

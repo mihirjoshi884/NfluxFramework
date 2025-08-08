@@ -12,7 +12,7 @@ import org.nflux.nfluxframework.enums.AUTH_WAYS;
  */
 @Data
 @NoArgsConstructor
-@AllArgsConstructor // This constructor now expects all 8 fields: authWays, token, username, password, apiKeyName, apiKeyValue, clientId, clientSecret
+@AllArgsConstructor
 public class AuthDetails {
     private AUTH_WAYS authWays;
     private String token; // For Bearer Token and OAuth2 tokens
@@ -23,8 +23,7 @@ public class AuthDetails {
     private String clientId; // Potentially for OAuth2 client credentials flow
     private String clientSecret; // Potentially for OAuth2 client credentials flow
 
-    // You might also consider specific constructors or builder patterns for different auth types
-    // For example:
+
     public static AuthDetails bearerToken(String token) {
         // Corrected to pass all 8 arguments to the AllArgsConstructor
         return new AuthDetails(AUTH_WAYS.BEARER_TOKEN, token, null, null, null, null, null, null);
@@ -41,8 +40,7 @@ public class AuthDetails {
     }
 
     public static AuthDetails oauth2(String token) {
-        // For simplicity, treating OAuth2 as a Bearer token for now.
-        // Corrected to pass all 8 arguments to the AllArgsConstructor.
+
         return new AuthDetails(AUTH_WAYS.OAUTH2, token, null, null, null, null, null, null);
     }
 

@@ -5,10 +5,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.nflux.nfluxframework.config.NfluxConfig; // Import NfluxConfig
+import org.nflux.nfluxframework.config.NfluxConfig;
 import org.nflux.nfluxframework.enums.API_TYPE;
 import org.nflux.nfluxframework.enums.AUTH_WAYS;
-import org.nflux.nfluxframework.enums.config.OutputFormat; // Import OutputFormat
+import org.nflux.nfluxframework.enums.config.OutputFormat;
 import org.nflux.nfluxframework.pojo.API;
 import org.nflux.nfluxframework.pojo.AuthDetails;
 import org.nflux.nfluxframework.pojo.InputMappingDetail;
@@ -25,7 +25,6 @@ import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
