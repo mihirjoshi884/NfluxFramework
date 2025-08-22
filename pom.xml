@@ -2,33 +2,58 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>3.5.4</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>org.nflux</groupId>
+
+    <groupId>io.github.mihirjoshi884</groupId>
     <artifactId>NfluxFramework</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
     <name>NfluxFramework</name>
-    <description>NfluxFramework</description>
-    <url/>
+    <description>The NfluxFramework is an API orchestration tool designed to manage complex, multi-step API workflows. It uses a Directed Acyclic Graph (DAG) to map dependencies, ensuring that APIs are executed in the correct order. The framework simplifies tasks like data mapping between API calls, managing authentication, and handling various response formats—including binary data—in a consistent, predictable manner. It is built to be a reliable and flexible solution for developers needing to automate and streamline their application's API interactions.</description>
+    <url>https://github.com/mihirjoshi884/NfluxFramework</url>
+
+    <!-- This section contains the license information -->
     <licenses>
-        <license/>
+        <license>
+            <name>MIT License</name>
+            <url>http://www.opensource.org/licenses/mit-license.php</url>
+        </license>
     </licenses>
+
+    <!-- This section contains the developer information -->
     <developers>
-        <developer/>
+        <developer>
+            <name>Mihir Joshi</name>
+            <email>mihirjoshi884@gmail.com</email>
+            <organization>io.github.mihirjoshi884</organization>
+            <organizationUrl>https://github.com/mihirjoshi884/NfluxFramework</organizationUrl>
+        </developer>
     </developers>
+
+    <!-- This section contains the SCM (Source Control Management) information -->
     <scm>
-        <connection/>
-        <developerConnection/>
-        <tag/>
-        <url/>
+        <connection>scm:git:git://github.com/mihirjoshi884/NfluxFramework.git</connection>
+        <developerConnection>scm:git:ssh://github.com:mihirjoshi884/NfluxFramework.git</developerConnection>
+        <url>https://github.com/mihirjoshi884/NfluxFramework</url>
     </scm>
+
     <properties>
         <java.version>17</java.version>
+        <!-- Plugin versions updated to recent stable versions for better compatibility -->
+        <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
+        <maven-surefire-plugin.version>3.3.0</maven-surefire-plugin.version>
+        <maven-gpg-plugin.version>3.2.4</maven-gpg-plugin.version>
+        <maven-javadoc-plugin.version>3.8.0</maven-javadoc-plugin.version>
+        <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
+        <central-publishing-maven-plugin.version>0.8.0</central-publishing-maven-plugin.version>
     </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -40,6 +65,7 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -49,10 +75,9 @@
         <dependency>
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock-standalone</artifactId>
-            <version>3.9.1</version> <!-- Use a recent stable version -->
+            <version>3.9.1</version>
             <scope>test</scope>
         </dependency>
-
 
         <dependency>
             <groupId>io.projectreactor</groupId>
@@ -63,10 +88,11 @@
 
     <build>
         <plugins>
+            <!-- Maven Compiler Plugin to handle Java version and Lombok annotations -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.0</version> <!-- Ensure this matches your version -->
+                <version>${maven-compiler-plugin.version}</version>
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
@@ -74,11 +100,13 @@
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
-                            <version>1.18.38</version> <!-- Match your Lombok version -->
+                            <version>${lombok.version}</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
+
+            <!-- Spring Boot Plugin to create an executable JAR -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -89,6 +117,70 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Source Plugin to create a sources JAR -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>${maven-source-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Maven Javadoc Plugin to create a Javadoc JAR -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>${maven-javadoc-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>${maven-gpg-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                        <configuration>
+                            <!-- This tells the GPG plugin not to fork a new process, allowing
+                                 it to handle the passphrase directly. -->
+                            <useAgent>true</useAgent>
+                            <passphrase>Mimioscar@030203</passphrase>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+
+            <!-- The new Central Publishing Plugin -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>${central-publishing-maven-plugin.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>true</autoPublish>
                 </configuration>
             </plugin>
             <plugin>
@@ -132,5 +224,19 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- The distribution management section is no longer needed with the new plugin -->
+    <distributionManagement>
+        <repository>
+            <id>central</id>
+            <name>Central Publishing Repository</name>
+            <url>https://central.sonatype.com/publishing/for-oss-projects/api/v1</url>
+        </repository>
+        <snapshotRepository>
+            <id>central</id>
+            <name>Central Publishing Snapshot Repository</name>
+            <url>https://central.sonatype.com/publishing/for-oss-projects/api/v1</url>
+        </snapshotRepository>
+    </distributionManagement>
 
 </project>
