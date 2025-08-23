@@ -22,7 +22,7 @@
     <licenses>
         <license>
             <name>MIT License</name>
-            <url>http://www.opensource.org/licenses/mit-license.php</url>
+            <url>https://github.com/mihirjoshi884/NfluxFramework/blob/main/LICENSE</url>
         </license>
     </licenses>
 
@@ -150,6 +150,7 @@
                 </executions>
             </plugin>
 
+            <!-- Maven GPG Plugin to sign artifacts for deployment -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-gpg-plugin</artifactId>
@@ -162,10 +163,10 @@
                             <goal>sign</goal>
                         </goals>
                         <configuration>
-                            <!-- This tells the GPG plugin not to fork a new process, allowing
-                                 it to handle the passphrase directly. -->
-                            <useAgent>true</useAgent>
-                            <passphrase>Mimioscar@030203</passphrase>
+                            <!-- Use the GPG key ID that you are using -->
+                            <keyname>A27C960D886AA35DC749E1936646D1B0577C2A76</keyname>
+                            <!-- Use batch mode to prevent interactive prompts -->
+                            <passphraseServerId>A27C960D886AA35DC749E1936646D1B0577C2A76</passphraseServerId>
                         </configuration>
                     </execution>
                 </executions>
