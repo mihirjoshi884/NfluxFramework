@@ -21,7 +21,26 @@ public class DemoApplication {
 ```
 
 ---
+### 2. Dependency Management
+To use the Nflux Framework, add the following dependency to your project's build file.
 
+Maven
+
+Add this to your pom.xml file:
+```
+<dependency>
+    <groupId>io.github.mihirjoshi884</groupId>
+    <artifactId>NfluxFramework</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+Gradle
+
+Add this to your build.gradle file:
+```
+implementation 'io.github.mihirjoshi884:NfluxFramework:1.0.0'
+```
+---
 ## ⚙️ Configuration Properties
 
 The `application.properties` file is where you can customize the framework's behavior. Understanding these properties allows you to fine-tune your orchestration.
